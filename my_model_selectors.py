@@ -7,6 +7,9 @@ from hmmlearn.hmm import GaussianHMM
 from sklearn.model_selection import KFold
 from asl_utils import combine_sequences
 
+import logging
+logging.basicConfig(format='%(levelname)s:%(message)s', level=logging.DEBUG)
+
 
 class ModelSelector(object):
     '''
@@ -49,7 +52,6 @@ class ModelSelector(object):
 
 class SelectorConstant(ModelSelector):
     """ select the model with value self.n_constant
-
     """
 
     def select(self):
@@ -62,7 +64,7 @@ class SelectorConstant(ModelSelector):
 
 
 class SelectorBIC(ModelSelector):
-    """ select the model with the lowest Baysian Information Criterion(BIC) score
+    """ select the model with the lowest Bayesian Information Criterion(BIC) score
 
     http://www2.imm.dtu.dk/courses/02433/doc/ch6_slides.pdf
     Bayesian information criteria: BIC = -2 * logL + p * logN
@@ -76,33 +78,130 @@ class SelectorBIC(ModelSelector):
         """
         warnings.filterwarnings("ignore", category=DeprecationWarning)
 
-        # TODO implement model selection based on BIC scores
+        # Implement model selection based on BIC scores
+
+        scores = []
+        n_components = range(self.min_n_components, self.max_n_components+1)
+
+        # n = number of HMM states
+        # d = number of features
+        # (The shape attribute for numpy arrays returns the dimensions of the array)
+        n, d = self.X.shape
+
+        for n_component in n_components:
+            try:
+                model = self.base_model(n_component)
+                logL = model.score(self.X, self.lengths)
+                p = (n_component * (n_component-1)) + (n_component-1) + (2 * d * n_component)
+                logN = np.log(n)
+
+                bic_score = -2 * logL + p * logN
+
+                # Add bic_score to scores list
+                scores.append(bic_score)
+
+            except:
+                # logging.info("except")
+                pass
+
+        # Return best model based on BIC
+        states = n_components[np.argmin(scores)] if scores else self.n_constant
+        return self.base_model(states)
+
         raise NotImplementedError
 
 
 class SelectorDIC(ModelSelector):
-    ''' select best model based on Discriminative Information Criterion
+    """ select best model based on Discriminative Information Criterion
 
     Biem, Alain. "A model selection criterion for classification: Application to hmm topology optimization."
     Document Analysis and Recognition, 2003. Proceedings. Seventh International Conference on. IEEE, 2003.
     http://citeseerx.ist.psu.edu/viewdoc/download?doi=10.1.1.58.6208&rep=rep1&type=pdf
     DIC = log(P(X(i)) - 1/(M-1)SUM(log(P(X(all but i))
-    '''
+    """
 
     def select(self):
         warnings.filterwarnings("ignore", category=DeprecationWarning)
 
-        # TODO implement model selection based on DIC scores
+        # Implement model selection based on DIC scores
+
+        scores = []
+        logL_all = []
+        n_components = range(self.min_n_components, self.max_n_components+1)
+
+        for n_component in n_components:
+            try:
+                model = self.base_model(n_component)
+
+                # 1. Get logL values for all words
+                logL = model.score(self.X, self.lengths)
+                logL_all.append(logL)
+
+            except:
+                # logging.info("except")
+                pass
+
+        # 2. Implement DIC formula
+        m = len(n_components)
+        sum_logL_all = sum(logL_all)
+
+        for logL in logL_all:
+            # DIC = likelihood(this word) - average likelihood(other words)
+            dic_score = logL - ((sum_logL_all - logL) / (m - 1))
+
+            # Add dic_score to scores list
+            scores.append(dic_score)
+
+        # Return best model based on DIC
+        states = (n_components[np.argmax(scores)] or n_components[0]) if scores else self.n_constant
+        return self.base_model(states)
+
         raise NotImplementedError
 
 
 class SelectorCV(ModelSelector):
-    ''' select best model based on average log Likelihood of cross-validation folds
-
-    '''
+    """ select best model based on average log Likelihood of cross-validation folds
+    """
 
     def select(self):
         warnings.filterwarnings("ignore", category=DeprecationWarning)
 
-        # TODO implement model selection using CV
+        # Implement model selection using CV
+
+        scores = []
+        split_method = KFold()
+        n_components = range(self.min_n_components, self.max_n_components+1)
+
+        for n_component in n_components:
+            try:
+                # Build model
+                model = self.base_model(n_component)
+
+                # Conditional statement necessary in case splitting is not possible
+                if len(self.sequences) < 2:
+                    # Add scores mean to scores list
+                    scores.append(np.mean(model.score(self.X, self.lengths)))
+
+                else:
+                    test_scores = []
+
+                    for cv_train_idx, cv_test_idx in split_method.split(self.sequences):
+                        # Setup training sequences
+                        self.X, self.lengths = combine_sequences(cv_train_idx, self.sequences)
+                        # Setup testing sequences
+                        test_X, test_lengths = combine_sequences(cv_test_idx, self.sequences)
+
+                        test_scores.append(model.score(test_X, test_lengths))
+
+                    # Add test_scores mean to scores list
+                    scores.append(np.mean(test_scores))
+
+            except:
+                # logging.info("except")
+                pass
+
+        # Return best model
+        states = n_components[np.argmax(scores)] if scores else self.n_constant
+        return self.base_model(states)
+
         raise NotImplementedError
