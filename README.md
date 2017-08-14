@@ -1,7 +1,8 @@
 # Artificial Intelligence Engineer Nanodegree
 
 This project is from Udacity’s Artificial Intelligence Nanodegree program. It contains code from Udacity as well as my own.
-#
+
+---
 
 ## Probabilistic Models
 ## Project: Sign Language Recognition System
